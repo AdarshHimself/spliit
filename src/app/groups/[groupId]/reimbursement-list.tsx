@@ -2,13 +2,13 @@ import { Button } from '@/components/ui/button'
 import { Reimbursement } from '@/lib/balances'
 import { Currency } from '@/lib/currency'
 import { formatCurrency } from '@/lib/utils'
-import { Participant } from '@prisma/client'
+import { User } from '@prisma/client'
 import { useLocale, useTranslations } from 'next-intl'
 import Link from 'next/link'
 
 type Props = {
   reimbursements: Reimbursement[]
-  participants: Participant[]
+  participants: Pick<User, 'id' | 'name'>[]
   currency: Currency
   groupId: string
 }

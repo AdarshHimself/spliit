@@ -2,7 +2,7 @@
 import { Button } from '@/components/ui/button'
 import { DateTimeStyle, cn, formatDate } from '@/lib/utils'
 import { AppRouterOutput } from '@/trpc/routers/_app'
-import { ActivityType, Participant } from '@prisma/client'
+import { ActivityType, User } from '@prisma/client'
 import { ChevronRight } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import Link from 'next/link'
@@ -14,7 +14,7 @@ export type Activity =
 type Props = {
   groupId: string
   activity: Activity
-  participant?: Participant
+  participant?: Pick<User, 'id' | 'name'>
   dateStyle: DateTimeStyle
 }
 

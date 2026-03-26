@@ -11,25 +11,25 @@ datasource db {
   directUrl = env("POSTGRES_URL_NON_POOLING") // uses a direct connection
 }
 
-model Group {
-  id           String        @id
-  name         String
-  information  String?       @db.Text
-  currency     String        @default("$")
-  currencyCode String?
-  participants Participant[]
-  expenses     Expense[]
-  activities   Activity[]
-  createdAt    DateTime      @default(now())
-}
-
-model Participant {
+model User {
   id              String           @id
   name            String
-  group           Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  groupId         String
+  email           String?          @unique
+  groups          Group[]          @relation("GroupParticipants")
   expensesPaidBy  Expense[]
   expensesPaidFor ExpensePaidFor[]
+}
+
+model Group {
+  id           String    @id
+  name         String
+  information  String?   @db.Text
+  currency     String    @default("$")
+  currencyCode String?
+  participants User[]    @relation("GroupParticipants")
+  expenses     Expense[]
+  activities   Activity[]
+  createdAt    DateTime  @default(now())
 }
 
 model Category {
@@ -50,7 +50,7 @@ model Expense {
   originalAmount   Int?
   originalCurrency String?
   conversionRate   Decimal?
-  paidBy           Participant       @relation(fields: [paidById], references: [id], onDelete: Cascade)
+  paidBy           User              @relation(fields: [paidById], references: [id], onDelete: Cascade)
   paidById         String
   paidFor          ExpensePaidFor[]
   groupId          String
@@ -105,11 +105,11 @@ enum RecurrenceRule {
 }
 
 model ExpensePaidFor {
-  expense       Expense     @relation(fields: [expenseId], references: [id], onDelete: Cascade)
-  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  expense       Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  participant   User    @relation(fields: [participantId], references: [id], onDelete: Cascade)
   expenseId     String
   participantId String
-  shares        Int         @default(1)
+  shares        Int     @default(1)
 
   @@id([expenseId, participantId])
 }

@@ -182,7 +182,6 @@
       "recurrenceRule": {
         "label": "Expense Recurrence",
         "description": "Select how often the expense should repeat.",
-
         "none": "None",
         "daily": "Daily",
         "weekly": "Weekly",
@@ -448,5 +447,33 @@
     "other": {
       "heading": "Other currencies"
     }
+  },
+  "BottomNav": {
+    "Home": "Home",
+    "Groups": "Groups",
+    "Activity": "Activity"
+  },
+  "GlobalLedger": {
+    "title": "Your Balance",
+    "totalOwed": "You are owed",
+    "totalOwe": "You owe",
+    "settled": "All settled up",
+    "friends": "Friends",
+    "noFriends": "No shared expenses yet. Add expenses in a group to see your balance here.",
+    "owes": "{name} owes you",
+    "youOwe": "You owe {name}",
+    "settled_with": "Settled with {name}"
+  },
+  "FriendLedger": {
+    "title": "1-on-1 with {name}",
+    "allTime": "All time",
+    "noExpenses": "No shared expenses found.",
+    "lastSettlement": "Last settlement: {date}",
+    "filterNote": "Showing expenses since last settlement on {date}. Toggle to see all.",
+    "netBalance": "Net balance",
+    "youAreOwed": "is owed",
+    "youOwe": "owes",
+    "groupBadge": "Group: {name}",
+    "sinceSettlement": "Since last settlement"
   }
 }

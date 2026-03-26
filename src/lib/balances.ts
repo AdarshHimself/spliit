@@ -1,15 +1,15 @@
 import { getGroupExpenses } from '@/lib/api'
-import { Participant } from '@prisma/client'
+import { User } from '@prisma/client'
 import { match } from 'ts-pattern'
 
 export type Balances = Record<
-  Participant['id'],
+  User['id'],
   { paid: number; paidFor: number; total: number }
 >
 
 export type Reimbursement = {
-  from: Participant['id']
-  to: Participant['id']
+  from: User['id']
+  to: User['id']
   amount: number
 }
 
