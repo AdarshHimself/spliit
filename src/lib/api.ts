@@ -13,6 +13,17 @@ export function randomId() {
 }
 
 export async function createGroup(groupFormValues: GroupFormValues) {
+  // For new participants (no id), create User records first
+  const participantsWithIds = await Promise.all(
+    groupFormValues.participants.map(async ({ id, name }) => {
+      if (id) return { id }
+      const newUser = await prisma.user.create({
+        data: { id: randomId(), name },
+      })
+      return { id: newUser.id }
+    }),
+  )
+
   return prisma.group.create({
     data: {
       id: randomId(),
@@ -21,12 +32,7 @@ export async function createGroup(groupFormValues: GroupFormValues) {
       currency: groupFormValues.currency,
       currencyCode: groupFormValues.currencyCode,
       participants: {
-        createMany: {
-          data: groupFormValues.participants.map(({ name }) => ({
-            id: randomId(),
-            name,
-          })),
-        },
+        connect: participantsWithIds,
       },
     },
     include: { participants: true },
@@ -294,6 +300,26 @@ export async function updateGroup(
 
   await logActivity(groupId, ActivityType.UPDATE_GROUP, { participantId })
 
+  // Participants to remove from this group (disconnect, not delete)
+  const toDisconnect = existingGroup.participants.filter(
+    (p) => !groupFormValues.participants.some((p2) => p2.id === p.id),
+  )
+
+  // Existing participants to update (name change)
+  const toUpdate = groupFormValues.participants.filter(
+    (p) => p.id !== undefined,
+  )
+
+  // New participants to create as global Users and connect to the group
+  const toCreate = groupFormValues.participants
+    .filter((p) => p.id === undefined)
+    .map((p) => ({ id: randomId(), name: p.name }))
+
+  // Create new User records for new participants
+  if (toCreate.length > 0) {
+    await prisma.user.createMany({ data: toCreate })
+  }
+
   return prisma.group.update({
     where: { id: groupId },
     data: {
@@ -302,25 +328,12 @@ export async function updateGroup(
       currency: groupFormValues.currency,
       currencyCode: groupFormValues.currencyCode,
       participants: {
-        deleteMany: existingGroup.participants.filter(
-          (p) => !groupFormValues.participants.some((p2) => p2.id === p.id),
-        ),
-        updateMany: groupFormValues.participants
-          .filter((participant) => participant.id !== undefined)
-          .map((participant) => ({
-            where: { id: participant.id },
-            data: {
-              name: participant.name,
-            },
-          })),
-        createMany: {
-          data: groupFormValues.participants
-            .filter((participant) => participant.id === undefined)
-            .map((participant) => ({
-              id: randomId(),
-              name: participant.name,
-            })),
-        },
+        disconnect: toDisconnect.map((p) => ({ id: p.id })),
+        connect: toCreate.map((p) => ({ id: p.id })),
+        update: toUpdate.map((p) => ({
+          where: { id: p.id },
+          data: { name: p.name },
+        })),
       },
     },
   })
@@ -434,6 +447,218 @@ export async function logActivity(
       activityType,
       ...extra,
     },
+  })
+}
+
+// ─── Global User Management ────────────────────────────────────────────────
+
+/**
+ * Finds an existing user by name or creates a new one.
+ * Name matching is case-sensitive and intentional: in this global ledger,
+ * a person named "Alice" in different groups is treated as the same global user.
+ * For production use, consider adding email-based deduplication.
+ */
+export async function getOrCreateUser(name: string) {
+  const existing = await prisma.user.findFirst({ where: { name } })
+  if (existing) return existing
+  return prisma.user.create({ data: { id: randomId(), name } })
+}
+
+export async function getUserById(userId: string) {
+  return prisma.user.findUnique({ where: { id: userId } })
+}
+
+export async function getUserFriends(userId: string) {
+  // Find all users who share at least one expense with this user
+  const sharedExpenses = await prisma.expense.findMany({
+    where: {
+      OR: [
+        { paidById: userId },
+        { paidFor: { some: { participantId: userId } } },
+      ],
+    },
+    select: {
+      id: true,
+      paidById: true,
+      paidFor: { select: { participantId: true } },
+    },
+  })
+
+  const friendIdSet = new Set<string>()
+  for (const expense of sharedExpenses) {
+    if (expense.paidById !== userId) friendIdSet.add(expense.paidById)
+    for (const pf of expense.paidFor) {
+      if (pf.participantId !== userId) friendIdSet.add(pf.participantId)
+    }
+  }
+
+  if (friendIdSet.size === 0) return []
+
+  return prisma.user.findMany({
+    where: { id: { in: Array.from(friendIdSet) } },
+    orderBy: { name: 'asc' },
+  })
+}
+
+export async function getUserGlobalBalance(
+  userId: string,
+): Promise<{ paid: number; paidFor: number; total: number }> {
+  const expenses = await getUserExpenses(userId)
+  return computeUserBalance(userId, expenses)
+}
+
+export async function getFriendNetBalance(
+  userId: string,
+  friendId: string,
+): Promise<number> {
+  const expenses = await getSharedExpenses(userId, friendId)
+  return computeUserBalance(userId, expenses).total
+}
+
+function computeUserBalance(
+  userId: string,
+  expenses: Awaited<ReturnType<typeof getUserExpenses>>,
+): { paid: number; paidFor: number; total: number } {
+  let paid = 0
+  let paidFor = 0
+
+  for (const expense of expenses) {
+    if (expense.paidBy.id === userId) {
+      paid += expense.amount
+    }
+
+    const paidFors = expense.paidFor
+    const totalShares = paidFors.reduce((s, p) => s + p.shares, 0)
+    let remaining = expense.amount
+
+    paidFors.forEach((pf, index) => {
+      const isLast = index === paidFors.length - 1
+
+      let share: number
+      if (expense.splitMode === 'EVENLY') {
+        share = isLast ? remaining : Math.floor(expense.amount / paidFors.length)
+      } else if (expense.splitMode === 'BY_AMOUNT') {
+        share = isLast ? remaining : pf.shares
+      } else {
+        share = isLast
+          ? remaining
+          : Math.floor((expense.amount * pf.shares) / totalShares)
+      }
+      remaining -= share
+
+      if (pf.participant.id === userId) {
+        paidFor += share
+      }
+    })
+  }
+
+  paid = Math.round(paid)
+  paidFor = Math.round(paidFor)
+  return { paid, paidFor, total: paid - paidFor }
+}
+
+export async function getLastSettlement(userId: string, friendId: string) {
+  return prisma.expense.findFirst({
+    where: {
+      isReimbursement: true,
+      AND: [
+        {
+          OR: [
+            { paidById: userId },
+            { paidFor: { some: { participantId: userId } } },
+          ],
+        },
+        {
+          OR: [
+            { paidById: friendId },
+            { paidFor: { some: { participantId: friendId } } },
+          ],
+        },
+      ],
+    },
+    orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
+  })
+}
+
+export async function getSharedExpenses(
+  userId: string,
+  friendId: string,
+  options?: { afterDate?: Date },
+) {
+  const expenses = await prisma.expense.findMany({
+    select: {
+      amount: true,
+      category: true,
+      createdAt: true,
+      expenseDate: true,
+      id: true,
+      isReimbursement: true,
+      groupId: true,
+      group: { select: { id: true, name: true, currency: true, currencyCode: true } },
+      paidBy: { select: { id: true, name: true } },
+      paidFor: {
+        select: {
+          participant: { select: { id: true, name: true } },
+          shares: true,
+        },
+      },
+      splitMode: true,
+      recurrenceRule: true,
+      title: true,
+      _count: { select: { documents: true } },
+    },
+    where: {
+      AND: [
+        {
+          OR: [
+            { paidById: userId },
+            { paidFor: { some: { participantId: userId } } },
+          ],
+        },
+        {
+          OR: [
+            { paidById: friendId },
+            { paidFor: { some: { participantId: friendId } } },
+          ],
+        },
+        ...(options?.afterDate
+          ? [{ expenseDate: { gte: options.afterDate } }]
+          : []),
+      ],
+    },
+    orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
+  })
+  return expenses
+}
+
+export async function getUserExpenses(userId: string) {
+  return prisma.expense.findMany({
+    select: {
+      amount: true,
+      category: true,
+      createdAt: true,
+      expenseDate: true,
+      id: true,
+      isReimbursement: true,
+      paidBy: { select: { id: true, name: true } },
+      paidFor: {
+        select: {
+          participant: { select: { id: true, name: true } },
+          shares: true,
+        },
+      },
+      splitMode: true,
+      recurrenceRule: true,
+      title: true,
+      _count: { select: { documents: true } },
+    },
+    where: {
+      OR: [
+        { paidById: userId },
+        { paidFor: { some: { participantId: userId } } },
+      ],
+    },
+    orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
   })
 }
 

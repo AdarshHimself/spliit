@@ -66,3 +66,28 @@
 .landing-header strong {
   @apply font-bold text-transparent;
 }
+
+/* ── Mobile / PWA native-feel mechanics ───────────────────── */
+@layer base {
+  /* Prevent text selection on interactive tap targets */
+  button,
+  a,
+  [role='button'] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Hide scrollbar on overflow elements while keeping scrollability */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Safe-area padding for devices with notches / home indicators */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

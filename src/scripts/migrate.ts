@@ -23,7 +23,8 @@ async function main() {
     ).map((group) => group.id)
 
     for (const groupRow of groupRows) {
-      const participants: Prisma.ParticipantCreateManyInput[] = []
+      const participants: { id: string; name: string }[] = []
+      const groupParticipants: { groupId: string; userId: string }[] = []
       const expenses: Prisma.ExpenseCreateManyInput[] = []
       const expenseParticipants: Prisma.ExpensePaidForCreateManyInput[] = []
       const participantIdsMapping: Record<number, string> = {}
@@ -54,8 +55,11 @@ async function main() {
         participantIdsMapping[participantRow.id] = id
         participants.push({
           id,
-          groupId: groupRow.id,
           name: participantRow.name,
+        })
+        groupParticipants.push({
+          groupId: groupRow.id,
+          userId: id,
         })
       }
 
@@ -105,8 +109,17 @@ async function main() {
 
       console.log('Creating group:', group)
       await prisma.group.create({ data: group })
-      console.log('Creating participants:', participants)
-      await prisma.participant.createMany({ data: participants })
+      console.log('Creating participants (Users):', participants)
+      await prisma.user.createMany({ data: participants, skipDuplicates: true })
+      // Connect users to group via implicit M2M
+      await prisma.group.update({
+        where: { id: groupRow.id },
+        data: {
+          participants: {
+            connect: participants.map((p) => ({ id: p.id })),
+          },
+        },
+      })
       console.log('Creating expenses:', expenses)
       await prisma.expense.createMany({ data: expenses })
       console.log('Creating expenseParticipants:', expenseParticipants)
